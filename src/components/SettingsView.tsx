@@ -1,11 +1,31 @@
 import { useState, useEffect } from 'react';
-import { Check, Download, LogOut, Save } from 'lucide-react';
+import {
+  Check,
+  Download,
+  ExternalLink,
+  FileSpreadsheet,
+  LogOut,
+  RefreshCw,
+  Save,
+} from 'lucide-react';
+import {
+  DEFAULT_SPREADSHEET_ID,
+  extractSpreadsheetId,
+  SpreadsheetSummary,
+} from '../lib/sheetsService';
 import { FIELD_LIMITS } from '../lib/validation';
 import { Memory, ReminderFrequency, UserProfile } from '../types/memoria';
 
 interface SettingsViewProps {
   profile: UserProfile | null;
   memories: Memory[];
+  sheetsConnected: boolean;
+  sheetsConnecting: boolean;
+  spreadsheetSummary: SpreadsheetSummary | null;
+  spreadsheetId: string;
+  onConnectSheets: () => Promise<void>;
+  onChangeSpreadsheet: (newId: string) => Promise<void>;
+  onRefreshSheet: () => Promise<void>;
   onSaveProfile: (settings: {
     journalTitle: string;
     journalSubtitle: string;
@@ -18,6 +38,13 @@ interface SettingsViewProps {
 export function SettingsView({
   profile,
   memories,
+  sheetsConnected,
+  sheetsConnecting,
+  spreadsheetSummary,
+  spreadsheetId,
+  onConnectSheets,
+  onChangeSpreadsheet,
+  onRefreshSheet,
   onSaveProfile,
   onSignOut,
 }: SettingsViewProps) {
@@ -31,7 +58,12 @@ export function SettingsView({
   const [reminderFrequency, setReminderFrequency] = useState<ReminderFrequency>(
     profile?.reminderFrequency || 'weekly'
   );
+  const [sheetInput, setSheetInput] = useState(
+    spreadsheetSummary?.spreadsheetId || spreadsheetId || DEFAULT_SPREADSHEET_ID
+  );
   const [saving, setSaving] = useState(false);
+  const [switchingSheet, setSwitchingSheet] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
 
   useEffect(() => {
@@ -41,6 +73,12 @@ export function SettingsView({
     setQuote(profile.quote || 'Simpan cerita, abadikan momen, kenang sepanjang waktu.');
     setReminderFrequency(profile.reminderFrequency || 'weekly');
   }, [profile]);
+
+  useEffect(() => {
+    setSheetInput(
+      spreadsheetSummary?.spreadsheetId || spreadsheetId || DEFAULT_SPREADSHEET_ID
+    );
+  }, [spreadsheetSummary?.spreadsheetId, spreadsheetId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,9 +98,31 @@ export function SettingsView({
     }
   };
 
+  const handleSwitchSheet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const extracted = extractSpreadsheetId(sheetInput);
+    if (!extracted) return;
+    setSwitchingSheet(true);
+    try {
+      await onChangeSpreadsheet(extracted);
+    } finally {
+      setSwitchingSheet(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setSyncing(true);
+    try {
+      await onRefreshSheet();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleExportArchive = () => {
     const payload = {
       exportedAt: new Date().toISOString(),
+      spreadsheetId: spreadsheetSummary?.spreadsheetId || spreadsheetId,
       journal: {
         title: journalTitle,
         subtitle: journalSubtitle,
@@ -92,8 +152,100 @@ export function SettingsView({
     URL.revokeObjectURL(url);
   };
 
+  const activeSheetId = spreadsheetSummary?.spreadsheetId || spreadsheetId || DEFAULT_SPREADSHEET_ID;
+  const sheetUrl = `https://docs.google.com/spreadsheets/d/${activeSheetId}/edit`;
+
   return (
     <div className="max-w-3xl space-y-6">
+      {/* Google Spreadsheet Connection Card */}
+      <section className="bg-white rounded-2xl border border-[#E6E8F0] p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-[#171A2E]">
+                {sheetsConnected
+                  ? 'Google Spreadsheet Terhubung'
+                  : 'Mode Lokal Aktif (Opsional Hubungkan Spreadsheet)'}
+              </h2>
+              <p className="text-xs text-[#646B84] mt-0.5">
+                {sheetsConnected ? (
+                  <>
+                    {spreadsheetSummary?.title || 'MEMORIA Spreadsheet'} ·{' '}
+                    <span className="tabular-nums">
+                      {spreadsheetSummary?.memoryRowsCount || 0} baris kenangan,{' '}
+                      {spreadsheetSummary?.photoRowsCount || 0} baris foto
+                    </span>
+                  </>
+                ) : (
+                  'Semua data tersimpan otomatis di browser Anda. Hubungkan Google Sheets kapan saja untuk sinkronisasi cloud.'
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {sheetsConnected ? (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={syncing}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-[#E6E8F0] bg-white hover:bg-[#F6F7FB] text-xs font-semibold text-[#171A2E] cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                <span>Sinkronkan</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onConnectSheets}
+                disabled={sheetsConnecting}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1E2342] hover:bg-[#2A315A] text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-300" />
+                <span>{sheetsConnecting ? 'Menghubungkan...' : 'Hubungkan Google Sheets'}</span>
+              </button>
+            )}
+
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+            >
+              <span>Buka Spreadsheet</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        </div>
+
+        <form onSubmit={handleSwitchSheet} className="pt-3 border-t border-[#F0F2F8] space-y-2">
+          <label htmlFor="sheet-id-input" className="block text-xs font-semibold text-[#171A2E]">
+            Link atau ID Google Spreadsheet Target
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <input
+              id="sheet-id-input"
+              type="text"
+              value={sheetInput}
+              onChange={(e) => setSheetInput(e.target.value)}
+              placeholder="Tempel link Google Spreadsheet atau Spreadsheet ID"
+              className="flex-1 h-10 px-3.5 rounded-xl border border-[#E6E8F0] font-mono text-xs text-[#171A2E] focus:outline-none focus:border-[#4F5BD5]"
+            />
+            <button
+              type="submit"
+              disabled={switchingSheet}
+              className="px-4 h-10 rounded-xl bg-[#1E2342] hover:bg-[#2A315A] text-white text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0"
+            >
+              {switchingSheet ? 'Menghubungkan...' : 'Gunakan Spreadsheet'}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      {/* Journal Settings Form */}
       <form
         onSubmit={handleSubmit}
         className="bg-white rounded-2xl border border-[#E6E8F0] p-6 space-y-5"
@@ -103,7 +255,7 @@ export function SettingsView({
             Personalisasi Jurnal Pribadi
           </h2>
           <p className="text-xs text-[#646B84] mt-0.5">
-            Atur judul jurnal, deskripsi beranda, kutipan, dan jadwal pengingat kenangan lama.
+            Atur judul jurnal, deskripsi beranda, kutipan, dan frekuensi pengingat kenangan lama.
           </p>
         </div>
 
@@ -191,10 +343,12 @@ export function SettingsView({
       <div className="bg-white rounded-2xl border border-[#E6E8F0] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold text-[#171A2E]">
-            Ekspor Arsip &amp; Akun
+            Ekspor Arsip &amp; Koneksi
           </h3>
           <p className="text-xs text-[#646B84] mt-0.5">
-            Masuk sebagai {profile?.displayName} ({profile?.email})
+            {sheetsConnected
+              ? `Terhubung sebagai ${profile?.displayName} (${profile?.email})`
+              : 'Berjalan dalam mode langsung tanpa login'}
           </p>
         </div>
 
@@ -208,14 +362,16 @@ export function SettingsView({
             <span>Unduh Backup JSON</span>
           </button>
 
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-xs font-semibold text-red-700 cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Keluar</span>
-          </button>
+          {sheetsConnected && (
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-xs font-semibold text-red-700 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Putuskan Sheets</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

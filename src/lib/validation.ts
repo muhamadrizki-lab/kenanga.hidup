@@ -71,7 +71,7 @@ export function sanitizeMemoryInput(input: MemoryInput): {
   const mood = MEMORY_MOODS.includes(input.mood) ? input.mood : 'Bahagia';
   const photos = (input.photos || [])
     .map((p) => p.trim())
-    .filter((p) => p.length > 0 && p.length <= FIELD_LIMITS.PHOTO_URL_MAX)
+    .filter((p) => p.length > 0 && p.length <= 300000)
     .slice(0, FIELD_LIMITS.PHOTOS_MAX_COUNT);
 
   const excerpt = buildExcerpt(story).slice(0, FIELD_LIMITS.EXCERPT_MAX);

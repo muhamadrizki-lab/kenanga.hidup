@@ -10,7 +10,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { uploadPhotosToServer } from '../lib/memoriaService';
+import { compressImageForSpreadsheet } from '../lib/imageCompression';
 import { FIELD_LIMITS, MEMORY_CATEGORIES, MEMORY_MOODS } from '../lib/validation';
 import { Memory, MemoryCategory, MemoryInput, MemoryMood } from '../types/memoria';
 
@@ -39,7 +39,7 @@ export function MemoryEditorModal({
   const [isMilestone, setIsMilestone] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
 
-  const [uploading, setUploading] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -82,14 +82,21 @@ export function MemoryEditorModal({
 
     const selected = Array.from(fileList).slice(0, remainingSlots);
     setError(null);
-    setUploading(true);
+    setCompressing(true);
     try {
-      const urls = await uploadPhotosToServer(selected);
-      setPhotos((prev) => [...prev, ...urls]);
+      const compressedList: string[] = [];
+      for (const file of selected) {
+        if (!file.type.startsWith('image/')) {
+          throw new Error(`File "${file.name}" bukan format gambar yang didukung.`);
+        }
+        const { dataUrl } = await compressImageForSpreadsheet(file);
+        compressedList.push(dataUrl);
+      }
+      setPhotos((prev) => [...prev, ...compressedList]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal mengunggah foto.');
+      setError(err instanceof Error ? err.message : 'Gagal memproses foto.');
     } finally {
-      setUploading(false);
+      setCompressing(false);
     }
   };
 
@@ -114,6 +121,10 @@ export function MemoryEditorModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!title.trim() || !story.trim()) {
+      setError('Judul dan cerita kenangan wajib diisi.');
+      return;
+    }
     setError(null);
     setSaving(true);
     try {
@@ -154,7 +165,7 @@ export function MemoryEditorModal({
               {initialMemory ? 'Edit Kenangan' : 'Abadikan Kenangan Baru'}
             </h2>
             <p className="text-xs text-[#646B84] mt-0.5">
-              Catat foto, lokasi, tanggal kejadian, dan cerita bermakna.
+              Foto otomatis dikompresi ringan agar muat dan gratis di Google Spreadsheet.
             </p>
           </div>
           <button
@@ -272,14 +283,14 @@ export function MemoryEditorModal({
             </div>
           </div>
 
-          {/* Photo Upload Dropzone */}
+          {/* Photo Compression & Spreadsheet Dropzone */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-[#171A2E]">
                 Foto Kenangan ({photos.length}/{FIELD_LIMITS.PHOTOS_MAX_COUNT})
               </span>
               <span className="text-[11px] text-[#646B84]">
-                Foto pertama menjadi sampul
+                Otomatis dikompresi &amp; disimpan ke Spreadsheet
               </span>
             </div>
 
@@ -311,58 +322,63 @@ export function MemoryEditorModal({
                 htmlFor="photo-upload-input"
                 className="inline-flex flex-col items-center cursor-pointer"
               >
-                {uploading ? (
+                {compressing ? (
                   <Loader2 className="w-7 h-7 text-[#4F5BD5] animate-spin mb-2" />
                 ) : (
                   <Upload className="w-7 h-7 text-[#4F5BD5] mb-2" />
                 )}
                 <span className="text-xs font-semibold text-[#171A2E]">
-                  {uploading
-                    ? 'Mengunggah foto...'
+                  {compressing
+                    ? 'Mengompresi foto agar hemat ruang...'
                     : 'Klik untuk pilih foto atau seret ke sini'}
                 </span>
                 <span className="text-[11px] text-[#646B84] mt-1">
-                  JPG, PNG, WebP hingga 8 MB per file
+                  Foto dioptimalkan ke ~40–75 KB sebelum disimpan ke Google Sheets
                 </span>
               </label>
             </div>
 
             {photos.length > 0 && (
               <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-2.5">
-                {photos.map((url, idx) => (
-                  <div
-                    key={`${url}-${idx}`}
-                    className="relative group aspect-square rounded-xl overflow-hidden border border-[#E6E8F0] bg-[#ECEFF8]"
-                  >
-                    <img
-                      src={url}
-                      alt={`Lampiran ${idx + 1}`}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                    />
-                    {idx === 0 ? (
-                      <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-[#1E2342]/85 text-white text-[10px] font-medium">
-                        Sampul
-                      </span>
-                    ) : (
+                {photos.map((url, idx) => {
+                  const approxKB = url.startsWith('data:')
+                    ? Math.max(1, Math.round((url.length * 0.75) / 1024))
+                    : null;
+                  return (
+                    <div
+                      key={`${idx}-${url.slice(0, 32)}`}
+                      className="relative group aspect-square rounded-xl overflow-hidden border border-[#E6E8F0] bg-[#ECEFF8]"
+                    >
+                      <img
+                        src={url}
+                        alt={`Lampiran ${idx + 1}`}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                      {idx === 0 ? (
+                        <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-[#1E2342]/85 text-white text-[10px] font-medium">
+                          Sampul{approxKB ? ` · ${approxKB}KB` : ''}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => makeCover(idx)}
+                          className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/65 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                        >
+                          Jadikan Sampul
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => makeCover(idx)}
-                        className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/65 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                        onClick={() => removePhoto(idx)}
+                        aria-label="Hapus foto"
+                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                       >
-                        Jadikan Sampul
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(idx)}
-                      aria-label="Hapus foto"
-                      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -427,7 +443,7 @@ export function MemoryEditorModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={saving || uploading}
+            disabled={saving || compressing}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1E2342] hover:bg-[#2A315A] text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-60"
           >
             <ImagePlus className="w-4 h-4" />

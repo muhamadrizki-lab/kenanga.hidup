@@ -7,6 +7,19 @@ import { MemoryCategory, MemoryMood } from '../types/memoria';
 
 export const HERO_BANNER_IMAGE = heroSunriseImg;
 
+export const BUNDLED_ASSET_MAP: Record<string, string> = {
+  'asset:hero': heroSunriseImg,
+  'asset:dieng': diengHikeImg,
+  'asset:engagement': engagementImg,
+  'asset:firstcar': firstCarImg,
+  'asset:graduation': graduationImg,
+};
+
+export function resolvePhotoUrl(refOrUrl: string): string {
+  if (!refOrUrl) return '';
+  return BUNDLED_ASSET_MAP[refOrUrl] || refOrUrl;
+}
+
 export interface StarterMemorySeed {
   idSuffix: string;
   title: string;
@@ -15,7 +28,7 @@ export interface StarterMemorySeed {
   location: string;
   category: MemoryCategory;
   mood: MemoryMood;
-  photos: string[];
+  photoRefs: string[];
   isMilestone: boolean;
   isFavorite: boolean;
 }
@@ -30,7 +43,7 @@ export const STARTER_MEMORIES: StarterMemorySeed[] = [
     location: 'Dataran Tinggi Dieng, Wonosobo',
     category: 'Pendakian',
     mood: 'Petualang',
-    photos: [diengHikeImg, heroSunriseImg],
+    photoRefs: ['asset:dieng', 'asset:hero'],
     isMilestone: true,
     isFavorite: true,
   },
@@ -43,7 +56,7 @@ export const STARTER_MEMORIES: StarterMemorySeed[] = [
     location: 'Bandung, Jawa Barat',
     category: 'Keluarga',
     mood: 'Haru',
-    photos: [engagementImg],
+    photoRefs: ['asset:engagement'],
     isMilestone: true,
     isFavorite: true,
   },
@@ -56,7 +69,7 @@ export const STARTER_MEMORIES: StarterMemorySeed[] = [
     location: 'Pantai Selatan, Yogyakarta',
     category: 'Pencapaian',
     mood: 'Bangga',
-    photos: [firstCarImg],
+    photoRefs: ['asset:firstcar'],
     isMilestone: true,
     isFavorite: false,
   },
@@ -69,7 +82,7 @@ export const STARTER_MEMORIES: StarterMemorySeed[] = [
     location: 'Depok, Jawa Barat',
     category: 'Karier',
     mood: 'Bersyukur',
-    photos: [graduationImg],
+    photoRefs: ['asset:graduation'],
     isMilestone: true,
     isFavorite: true,
   },

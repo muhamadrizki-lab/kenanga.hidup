@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { User } from 'firebase/auth';
 import {
   ArrowRight,
   Calendar,
+  FileSpreadsheet,
   Images as ImagesIcon,
   LayoutGrid,
   List,
@@ -13,8 +14,8 @@ import {
   Star,
 } from 'lucide-react';
 import { AlbumModal } from './components/AlbumModal';
-import { AuthScreen } from './components/AuthScreen';
 import { CategoriesView } from './components/CategoriesView';
+import { ConfirmDialog, ConfirmDialogState } from './components/ConfirmDialog';
 import { GalleryView } from './components/GalleryView';
 import { HeroBanner } from './components/HeroBanner';
 import { MemoryCard } from './components/MemoryCard';
@@ -27,21 +28,33 @@ import { StoriesView } from './components/StoriesView';
 import { TimelineRail } from './components/TimelineRail';
 import { TimelineView } from './components/TimelineView';
 import { TopBar } from './components/TopBar';
-import { auth, googleProvider } from './lib/firebase';
 import {
-  createAlbum,
-  createMemory,
-  deleteAlbum,
-  deleteMemory,
-  ensureUserProfileAndSeed,
-  subscribeAlbums,
-  subscribeMemories,
-  subscribeUserProfile,
-  toggleFavoriteMemory,
-  updateMemory,
-  updateUserProfile,
-} from './lib/memoriaService';
-import { formatIndonesianDate, MEMORY_CATEGORIES } from './lib/validation';
+  clearWorkspaceAccessToken,
+  getWorkspaceAccessToken,
+  googleWorkspaceSignIn,
+  initWorkspaceAuth,
+  workspaceLogout,
+} from './lib/firebase';
+import { loadLocalMemoriaState, saveLocalMemoriaState } from './lib/localStore';
+import {
+  DEFAULT_SPREADSHEET_ID,
+  deleteAlbumFromSheet,
+  deleteMemoryFromSheet,
+  loadMemoriaFromSheet,
+  saveAlbumToSheet,
+  saveMemoryToSheet,
+  saveProfileToSheet,
+  SheetsAuthExpiredError,
+  SpreadsheetSummary,
+  toggleFavoriteInSheet,
+} from './lib/sheetsService';
+import {
+  buildExcerpt,
+  formatIndonesianDate,
+  MEMORY_CATEGORIES,
+  sanitizeMemoryInput,
+  sanitizeProfileSettings,
+} from './lib/validation';
 import {
   Album,
   Memory,
@@ -54,9 +67,11 @@ import {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [sheetsConnected, setSheetsConnected] = useState(false);
+  const [sheetsConnecting, setSheetsConnecting] = useState(false);
+
+  const [spreadsheetId, setSpreadsheetId] = useState<string>(DEFAULT_SPREADSHEET_ID);
+  const [spreadsheetSummary, setSpreadsheetSummary] = useState<SpreadsheetSummary | null>(null);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -76,65 +91,72 @@ export default function App() {
   const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
   const [albumModalOpen, setAlbumModalOpen] = useState(false);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (nextUser) => {
-      setUser(nextUser);
-      setAuthReady(true);
-      if (nextUser) {
-        try {
-          await ensureUserProfileAndSeed(nextUser);
-        } catch (err) {
+  const [confirmState, setConfirmState] = useState<ConfirmDialogState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+
+  const syncFromSpreadsheet = useCallback(
+    async (activeUser: User, token: string, targetSheetId: string) => {
+      setDataLoading(true);
+      setDataError(null);
+      try {
+        const bundle = await loadMemoriaFromSheet(token, targetSheetId, activeUser);
+        setSpreadsheetSummary(bundle.summary);
+        setProfile(bundle.profile);
+        setMemories(bundle.memories);
+        setAlbums(bundle.albums);
+        setSheetsConnected(true);
+        await saveLocalMemoriaState({
+          profile: bundle.profile,
+          memories: bundle.memories,
+          albums: bundle.albums,
+        });
+      } catch (err) {
+        if (err instanceof SheetsAuthExpiredError) {
+          clearWorkspaceAccessToken();
+          setSheetsConnected(false);
+          setDataError(err.message);
+        } else {
           setDataError(
-            err instanceof Error ? err.message : 'Gagal menyiapkan profil pengguna.'
+            err instanceof Error ? err.message : 'Gagal membaca Google Spreadsheet.'
           );
         }
-      } else {
-        setProfile(null);
-        setMemories([]);
-        setAlbums([]);
+      } finally {
         setDataLoading(false);
       }
-    });
-    return () => unsub();
-  }, []);
+    },
+    []
+  );
 
+  // Instant Boot without login: load local IndexedDB state immediately
   useEffect(() => {
-    if (!authReady || !user) return;
-    setDataLoading(true);
-    setDataError(null);
+    let mounted = true;
+    loadLocalMemoriaState().then((localState) => {
+      if (!mounted) return;
+      setProfile(localState.profile);
+      setMemories(localState.memories);
+      setAlbums(localState.albums);
+      setDataLoading(false);
+    });
 
-    const unsubProfile = subscribeUserProfile(
-      user.uid,
-      (p) => setProfile(p),
-      (err) => setDataError(err.message)
-    );
-
-    const unsubMemories = subscribeMemories(
-      user.uid,
-      (items) => {
-        setMemories(items);
-        setDataLoading(false);
+    const unsub = initWorkspaceAuth(
+      (authedUser, token) => {
+        setUser(authedUser);
+        setSheetsConnected(true);
+        syncFromSpreadsheet(authedUser, token, spreadsheetId);
       },
-      (err) => {
-        setDataError(err.message);
-        setDataLoading(false);
+      (existingUser) => {
+        setUser(existingUser);
+        setSheetsConnected(false);
       }
-    );
-
-    const unsubAlbums = subscribeAlbums(
-      user.uid,
-      (items) => setAlbums(items),
-      (err) => setDataError(err.message)
     );
 
     return () => {
-      unsubProfile();
-      unsubMemories();
-      unsubAlbums();
+      mounted = false;
+      unsub();
     };
-  }, [authReady, user]);
+  }, [spreadsheetId, syncFromSpreadsheet]);
 
-  // Keep detail modal synchronized with real-time updates
+  // Keep detail modal synchronized with latest updates
   useEffect(() => {
     if (!detailMemory) return;
     const updated = memories.find((m) => m.id === detailMemory.id);
@@ -143,51 +165,209 @@ export default function App() {
     }
   }, [memories, detailMemory]);
 
-  const handleSignIn = async () => {
-    setAuthLoading(true);
-    setAuthError(null);
+  const persistLocal = useCallback(
+    async (nextProfile: UserProfile, nextMemories: Memory[], nextAlbums: Album[]) => {
+      setProfile(nextProfile);
+      setMemories(nextMemories);
+      setAlbums(nextAlbums);
+      await saveLocalMemoriaState({
+        profile: nextProfile,
+        memories: nextMemories,
+        albums: nextAlbums,
+      });
+    },
+    []
+  );
+
+  const handleConnectSheets = async () => {
+    setSheetsConnecting(true);
+    setDataError(null);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const { user: signedInUser, accessToken } = await googleWorkspaceSignIn();
+      setUser(signedInUser);
+      await syncFromSpreadsheet(signedInUser, accessToken, spreadsheetId);
     } catch (err) {
-      setAuthError(
+      setDataError(
         err instanceof Error
           ? err.message
-          : 'Gagal masuk dengan Google. Silakan coba lagi.'
+          : 'Gagal menghubungkan Google Sheets. Anda tetap dapat menggunakan mode lokal.'
       );
     } finally {
-      setAuthLoading(false);
+      setSheetsConnecting(false);
     }
   };
 
-  const handleSignOut = async () => {
-    await signOut(auth);
+  const handleDisconnectSheets = async () => {
+    await workspaceLogout();
+    setUser(null);
+    setSheetsConnected(false);
+    setSpreadsheetSummary(null);
+  };
+
+  const askConfirmation = (config: Omit<ConfirmDialogState, 'open' | 'onCancel'>) => {
+    return new Promise<boolean>((resolve) => {
+      setConfirmState({
+        open: true,
+        ...config,
+        onCancel: () => {
+          setConfirmState(null);
+          resolve(false);
+        },
+        onConfirm: async () => {
+          setConfirmBusy(true);
+          try {
+            await config.onConfirm();
+            setConfirmState(null);
+            resolve(true);
+          } catch (err) {
+            setConfirmState(null);
+            if (err instanceof SheetsAuthExpiredError) {
+              clearWorkspaceAccessToken();
+              setSheetsConnected(false);
+              setDataError(err.message);
+            } else {
+              setDataError(err instanceof Error ? err.message : 'Operasi gagal.');
+            }
+            resolve(false);
+          } finally {
+            setConfirmBusy(false);
+          }
+        },
+      });
+    });
   };
 
   const handleSaveMemory = async (input: MemoryInput, editingId?: string) => {
-    if (!user) return;
-    if (editingId) {
-      await updateMemory(editingId, input);
-    } else {
-      await createMemory(user.uid, input);
+    const checked = sanitizeMemoryInput(input);
+    if (!checked.valid || !checked.data) {
+      throw new Error(checked.error || 'Data kenangan tidak valid.');
     }
+
+    const token = getWorkspaceAccessToken();
+    if (sheetsConnected && user && token) {
+      const ok = await askConfirmation({
+        title: editingId ? 'Perbarui Kenangan di Spreadsheet?' : 'Simpan Kenangan ke Spreadsheet?',
+        description: editingId
+          ? `Perbarui data dan ${input.photos.length} foto untuk kenangan "${input.title}" di Google Spreadsheet?`
+          : `Tambahkan kenangan "${input.title}" beserta ${input.photos.length} foto terkompresi ke Google Spreadsheet?`,
+        confirmLabel: editingId ? 'Ya, Perbarui' : 'Ya, Simpan',
+        onConfirm: async () => {
+          await saveMemoryToSheet(token, spreadsheetId, user.uid, input, editingId);
+          await syncFromSpreadsheet(user, token, spreadsheetId);
+        },
+      });
+      if (!ok) {
+        throw new Error('Penyimpanan dibatalkan oleh pengguna.');
+      }
+      return;
+    }
+
+    // Local Instant Mode (No Login Required)
+    if (!profile) return;
+    const nowIso = new Date().toISOString();
+    const nextPhotos = (input.photos || []).filter(Boolean).slice(0, 10);
+    let nextMemories: Memory[];
+
+    if (editingId) {
+      nextMemories = memories.map((m) =>
+        m.id === editingId
+          ? {
+              ...m,
+              ...checked.data!,
+              photos: nextPhotos,
+              excerpt: buildExcerpt(checked.data!.story),
+              updatedAt: nowIso,
+            }
+          : m
+      );
+    } else {
+      const newMem: Memory = {
+        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        userId: profile.uid,
+        ...checked.data,
+        photos: nextPhotos,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      nextMemories = [newMem, ...memories];
+    }
+
+    nextMemories.sort((a, b) => b.date.localeCompare(a.date));
+    await persistLocal(profile, nextMemories, albums);
   };
 
   const handleDeleteMemory = async (memoryId: string) => {
-    await deleteMemory(memoryId);
+    const token = getWorkspaceAccessToken();
+    if (sheetsConnected && user && token) {
+      try {
+        await deleteMemoryFromSheet(token, spreadsheetId, memoryId);
+        await syncFromSpreadsheet(user, token, spreadsheetId);
+      } catch (err) {
+        if (err instanceof SheetsAuthExpiredError) {
+          clearWorkspaceAccessToken();
+          setSheetsConnected(false);
+          setDataError(err.message);
+        } else {
+          setDataError(err instanceof Error ? err.message : 'Gagal menghapus kenangan.');
+        }
+      }
+      return;
+    }
+
+    if (!profile) return;
+    const nextMemories = memories.filter((m) => m.id !== memoryId);
+    await persistLocal(profile, nextMemories, albums);
   };
 
   const handleToggleFavorite = async (memory: Memory) => {
-    await toggleFavoriteMemory(memory.id, !memory.isFavorite);
+    const nextFav = !memory.isFavorite;
+    const token = getWorkspaceAccessToken();
+
+    if (sheetsConnected && user && token) {
+      await askConfirmation({
+        title: nextFav ? 'Tandai Sebagai Favorit?' : 'Hapus Status Favorit?',
+        description: `Perbarui status favorit untuk "${memory.title}" di Google Spreadsheet Anda?`,
+        confirmLabel: 'Konfirmasi',
+        onConfirm: async () => {
+          await toggleFavoriteInSheet(token, spreadsheetId, memory.id, nextFav);
+          await syncFromSpreadsheet(user, token, spreadsheetId);
+        },
+      });
+      return;
+    }
+
+    if (!profile) return;
+    const nextMemories = memories.map((m) =>
+      m.id === memory.id ? { ...m, isFavorite: nextFav } : m
+    );
+    await persistLocal(profile, nextMemories, albums);
   };
 
   const handleUpdateTitleSubtitle = async (journalTitle: string, journalSubtitle: string) => {
-    if (!user) return;
-    await updateUserProfile(user.uid, {
+    const nextSettings = {
       journalTitle,
       journalSubtitle,
       quote: profile?.quote || 'Simpan cerita, abadikan momen, kenang sepanjang waktu.',
-      reminderFrequency: profile?.reminderFrequency || 'weekly',
-    });
+      reminderFrequency: profile?.reminderFrequency || ('weekly' as ReminderFrequency),
+    };
+
+    const token = getWorkspaceAccessToken();
+    if (sheetsConnected && user && token) {
+      await askConfirmation({
+        title: 'Perbarui Judul Jurnal di Spreadsheet?',
+        description: `Ubah judul jurnal menjadi "${journalTitle}" di tab Memoria_Profile Google Spreadsheet?`,
+        confirmLabel: 'Simpan Perubahan',
+        onConfirm: async () => {
+          await saveProfileToSheet(token, spreadsheetId, user, nextSettings);
+          await syncFromSpreadsheet(user, token, spreadsheetId);
+        },
+      });
+      return;
+    }
+
+    if (!profile) return;
+    const clean = sanitizeProfileSettings(nextSettings);
+    await persistLocal({ ...profile, ...clean }, memories, albums);
   };
 
   const handleSaveProfileSettings = async (settings: {
@@ -196,8 +376,24 @@ export default function App() {
     quote: string;
     reminderFrequency: ReminderFrequency;
   }) => {
-    if (!user) return;
-    await updateUserProfile(user.uid, settings);
+    const token = getWorkspaceAccessToken();
+    if (sheetsConnected && user && token) {
+      await askConfirmation({
+        title: 'Simpan Pengaturan ke Google Spreadsheet?',
+        description:
+          'Perubahan judul, kutipan, dan frekuensi pengingat akan diperbarui pada tab Memoria_Profile.',
+        confirmLabel: 'Simpan ke Spreadsheet',
+        onConfirm: async () => {
+          await saveProfileToSheet(token, spreadsheetId, user, settings);
+          await syncFromSpreadsheet(user, token, spreadsheetId);
+        },
+      });
+      return;
+    }
+
+    if (!profile) return;
+    const clean = sanitizeProfileSettings(settings);
+    await persistLocal({ ...profile, ...clean }, memories, albums);
   };
 
   const handleCreateAlbum = async (input: {
@@ -207,8 +403,82 @@ export default function App() {
     yearFilter: number;
     coverPhoto: string;
   }) => {
-    if (!user) return;
-    await createAlbum(user.uid, input);
+    const token = getWorkspaceAccessToken();
+    if (sheetsConnected && user && token) {
+      const ok = await askConfirmation({
+        title: 'Buat Album Digital di Spreadsheet?',
+        description: `Tambahkan album "${input.name}" ke tab Memoria_Albums di Google Spreadsheet Anda?`,
+        confirmLabel: 'Buat Album',
+        onConfirm: async () => {
+          await saveAlbumToSheet(token, spreadsheetId, user.uid, input);
+          await syncFromSpreadsheet(user, token, spreadsheetId);
+        },
+      });
+      if (!ok) {
+        throw new Error('Pembuatan album dibatalkan.');
+      }
+      return;
+    }
+
+    if (!profile) return;
+    const nowIso = new Date().toISOString();
+    const newAlbum: Album = {
+      id: `alb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      userId: profile.uid,
+      name: input.name.trim().slice(0, 80),
+      description: input.description.trim().slice(0, 300),
+      categoryFilter: input.categoryFilter,
+      yearFilter: input.yearFilter || 0,
+      coverPhoto: input.coverPhoto,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    await persistLocal(profile, memories, [...albums, newAlbum]);
+  };
+
+  const handleDeleteAlbum = async (albumId: string) => {
+    const token = getWorkspaceAccessToken();
+    const target = albums.find((a) => a.id === albumId);
+
+    if (sheetsConnected && user && token) {
+      await askConfirmation({
+        title: 'Hapus Album dari Spreadsheet?',
+        description: `Hapus album "${target?.name || 'terpilih'}" dari tab Memoria_Albums di Google Spreadsheet? Foto kenangan Anda tidak akan ikut terhapus.`,
+        confirmLabel: 'Ya, Hapus Album',
+        destructive: true,
+        onConfirm: async () => {
+          await deleteAlbumFromSheet(token, spreadsheetId, albumId);
+          await syncFromSpreadsheet(user, token, spreadsheetId);
+        },
+      });
+      return;
+    }
+
+    if (!profile) return;
+    await persistLocal(
+      profile,
+      memories,
+      albums.filter((a) => a.id !== albumId)
+    );
+  };
+
+  const handleChangeSpreadsheet = async (nextId: string) => {
+    setSpreadsheetId(nextId);
+    const token = getWorkspaceAccessToken();
+    if (sheetsConnected && user && token) {
+      await syncFromSpreadsheet(user, token, nextId);
+    } else {
+      await handleConnectSheets();
+    }
+  };
+
+  const handleRefreshSheet = async () => {
+    const token = getWorkspaceAccessToken();
+    if (sheetsConnected && user && token) {
+      await syncFromSpreadsheet(user, token, spreadsheetId);
+    } else {
+      await handleConnectSheets();
+    }
   };
 
   const filteredMemories = useMemo(() => {
@@ -239,14 +509,14 @@ export default function App() {
     return items;
   }, [homeGalleryMemories]);
 
-  // Deterministic throwback reminder selection based on current day/week
   const throwbackMemories = useMemo(() => {
     if (memories.length === 0 || profile?.reminderFrequency === 'off') return [];
     const now = new Date();
     const daySeed =
       profile?.reminderFrequency === 'daily'
         ? now.getFullYear() * 366 + now.getMonth() * 31 + now.getDate()
-        : now.getFullYear() * 53 + Math.floor((now.getTime() / (1000 * 60 * 60 * 24 * 7)) % 53);
+        : now.getFullYear() * 53 +
+          Math.floor((now.getTime() / (1000 * 60 * 60 * 24 * 7)) % 53);
 
     const sortedOldestFirst = memories
       .slice()
@@ -270,27 +540,6 @@ export default function App() {
     memories.forEach((m) => yrs.add(m.year || Number(m.date.slice(0, 4))));
     return Array.from(yrs).sort((a, b) => b - a);
   }, [memories]);
-
-  if (!authReady) {
-    return (
-      <div className="min-h-screen bg-[#F6F7FB] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3 text-[#4E556F]">
-          <Loader2 className="w-7 h-7 animate-spin text-[#4F5BD5]" />
-          <p className="text-sm font-medium">Menyiapkan ruang kenangan MEMORIA...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <AuthScreen
-        onSignIn={handleSignIn}
-        loading={authLoading}
-        error={authError}
-      />
-    );
-  }
 
   const recentMemories = filteredMemories.slice(0, 3);
   const featuredThrowback = throwbackMemories[0] || null;
@@ -320,25 +569,35 @@ export default function App() {
             setDetailMemory(mem);
           }}
           onOpenSettings={() => setActiveSection('pengaturan')}
-          onSignOut={handleSignOut}
+          onConnectSheets={handleConnectSheets}
+          onSignOut={handleDisconnectSheets}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           profile={profile}
+          sheetsConnected={sheetsConnected}
+          sheetsConnecting={sheetsConnecting}
         />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto space-y-6">
           {dataError && (
             <div
               role="alert"
-              className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-xs"
+              className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center justify-between gap-4"
             >
-              Terjadi kendala saat menyinkronkan data: {dataError}
+              <span>{dataError}</span>
+              <button
+                type="button"
+                onClick={() => setDataError(null)}
+                className="px-3 py-1.5 rounded-lg bg-red-700 text-white font-semibold shrink-0 cursor-pointer"
+              >
+                Tutup
+              </button>
             </div>
           )}
 
           {dataLoading ? (
             <div className="bg-white rounded-2xl border border-[#E6E8F0] p-16 flex flex-col items-center justify-center gap-3 text-[#646B84]">
               <Loader2 className="w-7 h-7 animate-spin text-[#4F5BD5]" />
-              <p className="text-sm font-medium">Memuat kenangan pribadi Anda...</p>
+              <p className="text-sm font-medium">Memuat jurnal kenangan MEMORIA...</p>
             </div>
           ) : (
             <>
@@ -356,6 +615,54 @@ export default function App() {
                     }}
                     onUpdateTitle={handleUpdateTitleSubtitle}
                   />
+
+                  {/* Spreadsheet Sync Status Strip */}
+                  <div className="bg-white rounded-2xl border border-[#E6E8F0] px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2 text-[#4E556F]">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                      {sheetsConnected && spreadsheetSummary ? (
+                        <span>
+                          Tersinkron ke Google Spreadsheet:{' '}
+                          <strong className="text-[#171A2E]">{spreadsheetSummary.title}</strong> ·{' '}
+                          <span className="tabular-nums text-[#646B84]">
+                            {spreadsheetSummary.memoryRowsCount} kenangan &amp;{' '}
+                            {spreadsheetSummary.photoRowsCount} baris foto
+                          </span>
+                        </span>
+                      ) : (
+                        <span>
+                          Berjalan langsung tanpa login (tersimpan otomatis di browser).{' '}
+                          <span className="text-[#646B84]">
+                            Ingin sinkronkan ke Google Spreadsheet Anda?
+                          </span>
+                        </span>
+                      )}
+                    </div>
+
+                    {sheetsConnected ? (
+                      <a
+                        href={`https://docs.google.com/spreadsheets/d/${
+                          spreadsheetSummary?.spreadsheetId || spreadsheetId
+                        }/edit`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-[#4F5BD5] hover:underline whitespace-nowrap"
+                      >
+                        Lihat Spreadsheet →
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleConnectSheets}
+                        disabled={sheetsConnecting}
+                        className="font-semibold text-[#4F5BD5] hover:underline whitespace-nowrap cursor-pointer"
+                      >
+                        {sheetsConnecting
+                          ? 'Menghubungkan...'
+                          : 'Hubungkan Google Spreadsheet →'}
+                      </button>
+                    )}
+                  </div>
 
                   {/* Throwback Reminder Banner */}
                   {featuredThrowback && profile?.reminderFrequency !== 'off' && (
@@ -651,7 +958,7 @@ export default function App() {
                     setDetailMemory(m);
                   }}
                   onOpenNewAlbum={() => setAlbumModalOpen(true)}
-                  onDeleteAlbum={deleteAlbum}
+                  onDeleteAlbum={handleDeleteAlbum}
                 />
               )}
 
@@ -688,8 +995,15 @@ export default function App() {
                 <SettingsView
                   profile={profile}
                   memories={memories}
+                  sheetsConnected={sheetsConnected}
+                  sheetsConnecting={sheetsConnecting}
+                  spreadsheetSummary={spreadsheetSummary}
+                  spreadsheetId={spreadsheetId}
+                  onConnectSheets={handleConnectSheets}
+                  onChangeSpreadsheet={handleChangeSpreadsheet}
+                  onRefreshSheet={handleRefreshSheet}
                   onSaveProfile={handleSaveProfileSettings}
-                  onSignOut={handleSignOut}
+                  onSignOut={handleDisconnectSheets}
                 />
               )}
             </>
@@ -726,6 +1040,21 @@ export default function App() {
         defaultCoverPhoto={memories.find((m) => m.photos?.length > 0)?.photos[0] || ''}
         onClose={() => setAlbumModalOpen(false)}
         onCreate={handleCreateAlbum}
+      />
+
+      <ConfirmDialog
+        state={confirmState}
+        busy={confirmBusy}
+        onCancel={() => {
+          if (confirmState?.onCancel) {
+            confirmState.onCancel();
+          } else {
+            setConfirmState(null);
+          }
+        }}
+        onProceed={() => {
+          confirmState?.onConfirm();
+        }}
       />
     </div>
   );

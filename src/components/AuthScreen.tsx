@@ -1,13 +1,21 @@
-import { Camera, BookOpen, CalendarClock, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
+import { BookOpen, CalendarClock, Camera, FileSpreadsheet, Sparkles } from 'lucide-react';
 import { HERO_BANNER_IMAGE } from '../lib/sampleAssets';
 
 interface AuthScreenProps {
   onSignIn: () => void;
   loading: boolean;
   error: string | null;
+  needsTokenRefresh?: boolean;
+  userEmail?: string | null;
 }
 
-export function AuthScreen({ onSignIn, loading, error }: AuthScreenProps) {
+export function AuthScreen({
+  onSignIn,
+  loading,
+  error,
+  needsTokenRefresh = false,
+  userEmail = null,
+}: AuthScreenProps) {
   return (
     <div className="min-h-screen bg-[#F6F7FB] text-[#171A2E] flex flex-col lg:flex-row">
       {/* Left Narrative Column */}
@@ -26,44 +34,55 @@ export function AuthScreen({ onSignIn, loading, error }: AuthScreenProps) {
 
         <div className="max-w-lg my-12 lg:my-0">
           <p className="text-xs font-medium tracking-wide text-[#4F5BD5] mb-3">
-            Jurnal Perjalanan Hidup &amp; Album Digital Pribadi
+            Jurnal Perjalanan Hidup · Penyimpanan Google Spreadsheet
           </p>
           <h1 className="font-display text-4xl sm:text-5xl font-semibold tracking-tight text-[#171A2E] leading-[1.12] [text-wrap:balance]">
             Setiap Momen Punya Cerita, Setiap Cerita Menjadi Kenangan.
           </h1>
           <p className="mt-5 text-[15px] leading-relaxed text-[#4E556F]">
-            Simpan foto berharga, tulis kisah di balik setiap peristiwa, susun berdasarkan
-            lini masa hidup, dan biarkan MEMORIA mengingatkan kembali momen-momen hangat
-            yang membentuk siapa Anda hari ini.
+            {needsTokenRefresh
+              ? `Selamat datang kembali${userEmail ? ` (${userEmail})` : ''}. Hubungkan kembali izin Google Sheets untuk membaca serta menyimpan cerita dan foto ke spreadsheet pribadi Anda.`
+              : 'Simpan foto terkompresi, tulis kisah di balik setiap peristiwa, dan kelola seluruh perjalanan hidup Anda secara gratis langsung di Google Spreadsheet pribadi.'}
           </p>
 
           <div className="mt-8 space-y-4">
+            {/* Official Sign in with Google button style */}
             <button
               type="button"
               onClick={onSignIn}
               disabled={loading}
-              className="inline-flex items-center justify-center gap-3 px-6 py-3.5 rounded-xl bg-[#1E2342] text-white font-medium text-sm hover:bg-[#2A315A] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-3 h-11 px-4 rounded-md bg-white border border-[#747775] hover:bg-[#F8FAFD] hover:shadow-xs text-[#1F1F1F] text-sm font-medium transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+              style={{ fontFamily: 'Roboto, var(--font-sans)' }}
             >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+              <svg
+                className="w-[18px] h-[18px] shrink-0 block"
+                viewBox="0 0 48 48"
+                aria-hidden="true"
+              >
                 <path
                   fill="#EA4335"
-                  d="M12 5c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.77 14.97 1 12 1 7.39 1 3.41 3.64 1.48 7.5l3.68 2.86C6.03 7.72 8.77 5 12 5z"
+                  d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
                 />
                 <path
                   fill="#4285F4"
-                  d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58l3.7 2.87c2.16-2 3.72-4.94 3.72-8.69z"
+                  d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
                 />
                 <path
                   fill="#FBBC05"
-                  d="M5.16 14.64A7.01 7.01 0 0 1 4.79 12c0-.91.16-1.79.37-2.64L1.48 6.5A11.97 11.97 0 0 0 0 12c0 1.94.46 3.77 1.48 5.5l3.68-2.86z"
+                  d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
                 />
                 <path
                   fill="#34A853"
-                  d="M12 23c3.24 0 5.95-1.08 7.93-2.91l-3.7-2.87c-1.08.72-2.45 1.16-4.23 1.16-3.23 0-5.97-2.72-6.84-6.36L1.48 14.88C3.41 19.36 7.39 23 12 23z"
+                  d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
                 />
               </svg>
-              <span>{loading ? 'Menghubungkan Akun...' : 'Masuk dengan Google'}</span>
-              <ArrowRight className="w-4 h-4 opacity-80" />
+              <span>
+                {loading
+                  ? 'Menghubungkan ke Google Sheets...'
+                  : needsTokenRefresh
+                  ? 'Hubungkan Google Sheets'
+                  : 'Sign in with Google'}
+              </span>
             </button>
 
             {error && (
@@ -76,8 +95,10 @@ export function AuthScreen({ onSignIn, loading, error }: AuthScreenProps) {
             )}
 
             <div className="flex items-center gap-2 text-xs text-[#646B84]">
-              <ShieldCheck className="w-4 h-4 text-[#4F5BD5] shrink-0" />
-              <span>Arsip kenangan Anda tersimpan aman dan bersifat pribadi per akun.</span>
+              <FileSpreadsheet className="w-4 h-4 text-[#16A34A] shrink-0" />
+              <span>
+                Semua catatan dan foto terkompresi disimpan langsung di Google Spreadsheet Anda.
+              </span>
             </div>
           </div>
         </div>
@@ -95,10 +116,10 @@ export function AuthScreen({ onSignIn, loading, error }: AuthScreenProps) {
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-[#171A2E]">
               <BookOpen className="w-4 h-4 text-[#4F5BD5]" />
-              <span>Cerita &amp; Lokasi</span>
+              <span>Cerita &amp; Foto Hemat</span>
             </div>
             <p className="mt-1 text-xs text-[#646B84] leading-relaxed">
-              Catat narasi, suasana hati, tanggal kejadian, dan tempat kenangan tercipta.
+              Foto otomatis dikompresi ringan dan disimpan aman di tab spreadsheet.
             </p>
           </div>
           <div>

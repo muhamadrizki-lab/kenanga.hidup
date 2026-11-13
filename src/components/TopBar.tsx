@@ -1,5 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, LogOut, Menu, Search, Settings, Sparkles, X } from 'lucide-react';
+import {
+  Bell,
+  FileSpreadsheet,
+  LogOut,
+  Menu,
+  Search,
+  Settings,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { formatIndonesianDate } from '../lib/validation';
 import { Memory, NavSection, UserProfile } from '../types/memoria';
 
@@ -10,9 +19,12 @@ interface TopBarProps {
   throwbackMemories: Memory[];
   onOpenMemory: (memory: Memory) => void;
   onOpenSettings: () => void;
+  onConnectSheets: () => void;
   onSignOut: () => void;
   onOpenMobileMenu: () => void;
   profile: UserProfile | null;
+  sheetsConnected: boolean;
+  sheetsConnecting: boolean;
 }
 
 const SECTION_TITLES: Record<NavSection, string> = {
@@ -32,9 +44,12 @@ export function TopBar({
   throwbackMemories,
   onOpenMemory,
   onOpenSettings,
+  onConnectSheets,
   onSignOut,
   onOpenMobileMenu,
   profile,
+  sheetsConnected,
+  sheetsConnecting,
 }: TopBarProps) {
   const [reminderOpen, setReminderOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -102,8 +117,20 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Zone 3: Reminders & Profile */}
+      {/* Zone 3: Optional Sheets Sync, Reminders & Profile */}
       <div className="flex items-center gap-2.5 shrink-0">
+        {!sheetsConnected && (
+          <button
+            type="button"
+            onClick={onConnectSheets}
+            disabled={sheetsConnecting}
+            className="hidden md:inline-flex items-center gap-2 h-10 px-3.5 rounded-xl bg-white border border-[#E6E8F0] hover:border-emerald-400 text-xs font-semibold text-[#171A2E] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>{sheetsConnecting ? 'Menghubungkan...' : 'Sync Spreadsheet'}</span>
+          </button>
+        )}
+
         {/* Throwback Reminder Bell */}
         <div className="relative" ref={reminderRef}>
           <button
@@ -217,18 +244,33 @@ export function TopBar({
               </div>
             )}
             <span className="hidden md:inline text-xs font-medium text-[#171A2E] max-w-[120px] truncate">
-              {profile?.displayName || 'Akun Saya'}
+              {profile?.displayName || 'Jurnal Saya'}
             </span>
           </button>
 
           {profileMenuOpen && (
-            <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-white border border-[#E6E8F0] shadow-xl py-2 z-40">
+            <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-[#E6E8F0] shadow-xl py-2 z-40">
               <div className="px-4 py-2.5 border-b border-[#E6E8F0]">
                 <p className="text-sm font-semibold text-[#171A2E] truncate">
                   {profile?.displayName}
                 </p>
-                <p className="text-xs text-[#646B84] truncate">{profile?.email}</p>
+                <p className="text-xs text-[#646B84] truncate">
+                  {sheetsConnected ? profile?.email : 'Mode Langsung (Penyimpanan Lokal)'}
+                </p>
               </div>
+              {!sheetsConnected && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    onConnectSheets();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Hubungkan Google Spreadsheet</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -240,17 +282,19 @@ export function TopBar({
                 <Settings className="w-4 h-4 text-[#646B84]" />
                 <span>Pengaturan Jurnal</span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setProfileMenuOpen(false);
-                  onSignOut();
-                }}
-                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-red-700 hover:bg-red-50 cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Keluar Akun</span>
-              </button>
+              {sheetsConnected && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    onSignOut();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-red-700 hover:bg-red-50 cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Putuskan Google Sheets</span>
+                </button>
+              )}
             </div>
           )}
         </div>
