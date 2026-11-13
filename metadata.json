@@ -1,0 +1,6 @@
+{
+  "name": "MEMORIA – My Life Journey",
+  "description": "Platform jurnal perjalanan hidup, album foto pribadi, dan timeline kenangan digital dengan autentikasi serta penyimpanan cloud.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,229 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private personal journal settings and profile owned by an authenticated MEMORIA user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "journalTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "journalSubtitle": {
+          "type": "string",
+          "maxLength": 220
+        },
+        "quote": {
+          "type": "string",
+          "maxLength": 220
+        },
+        "reminderFrequency": {
+          "type": "string",
+          "enum": ["daily", "weekly", "off"]
+        },
+        "seededDemo": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "journalTitle",
+        "reminderFrequency",
+        "seededDemo",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Memory": {
+      "title": "Memory",
+      "description": "A personal life memory entry with story narrative, event date, location, category, mood, and photo URLs.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "story": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10000
+        },
+        "excerpt": {
+          "type": "string",
+          "maxLength": 280
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "year": {
+          "type": "number"
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Keluarga", "Karier", "Travel", "Pendakian", "Pencapaian", "Lainnya"]
+        },
+        "mood": {
+          "type": "string",
+          "enum": ["Bahagia", "Bersyukur", "Haru", "Bangga", "Tenang", "Petualang"]
+        },
+        "photos": {
+          "type": "array"
+        },
+        "isMilestone": {
+          "type": "boolean"
+        },
+        "isFavorite": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "story",
+        "excerpt",
+        "date",
+        "year",
+        "location",
+        "category",
+        "mood",
+        "photos",
+        "isMilestone",
+        "isFavorite",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Album": {
+      "title": "Album",
+      "description": "A user-curated digital album filtered by life category and year.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "categoryFilter": {
+          "type": "string",
+          "enum": ["Semua", "Keluarga", "Karier", "Travel", "Pendakian", "Pencapaian", "Lainnya"]
+        },
+        "yearFilter": {
+          "type": "number"
+        },
+        "coverPhoto": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "name",
+        "description",
+        "categoryFilter",
+        "yearFilter",
+        "coverPhoto",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user journal profile and preferences."
+    },
+    "/memories/{memoryId}": {
+      "schema": { "$ref": "#/entities/Memory" },
+      "description": "Personal memories owned by individual users."
+    },
+    "/albums/{albumId}": {
+      "schema": { "$ref": "#/entities/Album" },
+      "description": "Digital photo albums grouped by category and year."
+    }
+  }
+}
